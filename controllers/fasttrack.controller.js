@@ -1,57 +1,100 @@
 const FastTrack = require("../models/FastTrack");
 
-// Generate small alphanumeric ID
-function generateSmallId() {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "";
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
+const FTS_TYPES = ["Report", "Purchase", "Correspondence", "Other"];
+const DOCKET_PREFIX = "Delpro";
 
-// Generate FastTrack IDs
-exports.generateId = async (req, res) => {
-  try {
-    const year = new Date().getFullYear();
+// Generate next FTS ID: DPL001..DPL999, then random 3 letters + 001 onwards
+async function generateNextFtsId() {
+  const dplRegex = /^DPL(\d{3})$/;
+  const otherRegex = /^([A-Z]{3})(\d{3})$/;
 
-    // Generate unique small ID
-    let smallId;
-    let isUnique = false;
-    let attempts = 0;
-    while (!isUnique && attempts < 10) {
-      smallId = generateSmallId();
-      const existing = await FastTrack.findOne({ smallId });
-      if (!existing) {
-        isUnique = true;
+  const all = await FastTrack.find({}, { smallId: 1 }).lean();
+  let maxDpl = 0;
+  const otherByPrefix = {};
+
+  for (const { smallId } of all) {
+    const dplMatch = smallId.match(dplRegex);
+    if (dplMatch) {
+      maxDpl = Math.max(maxDpl, parseInt(dplMatch[1], 10));
+    } else {
+      const otherMatch = smallId.match(otherRegex);
+      if (otherMatch) {
+        const prefix = otherMatch[1];
+        const num = parseInt(otherMatch[2], 10);
+        if (!otherByPrefix[prefix]) otherByPrefix[prefix] = 0;
+        otherByPrefix[prefix] = Math.max(otherByPrefix[prefix], num);
       }
+    }
+  }
+
+  let nextFtsId;
+  if (maxDpl < 999) {
+    nextFtsId = "DPL" + String(maxDpl + 1).padStart(3, "0");
+  } else {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let attempts = 0;
+    nextFtsId = null;
+    while (attempts < 20) {
+      let prefix = "";
+      for (let i = 0; i < 3; i++) {
+        prefix += letters.charAt(Math.floor(Math.random() * letters.length));
+      }
+      if (prefix === "DPL") continue;
+      const maxForPrefix = otherByPrefix[prefix] || 0;
+      const nextNum = maxForPrefix + 1;
+      const candidate = prefix + String(nextNum).padStart(3, "0");
+      const existing = await FastTrack.findOne({ smallId: candidate });
+      if (!existing) {
+        nextFtsId = candidate;
+        break;
+      }
+      otherByPrefix[prefix] = nextNum;
       attempts++;
     }
+    if (!nextFtsId) {
+      return null;
+    }
+  }
 
-    if (!isUnique) {
-      return res.status(500).json({
+  return nextFtsId;
+}
+
+// Generate FastTrack IDs (FTS ID + docket number for given type)
+exports.generateId = async (req, res) => {
+  try {
+    const ftsType = (req.query.ftsType || req.body.ftsType || "Report").trim();
+    if (!FTS_TYPES.includes(ftsType)) {
+      return res.status(400).json({
         success: false,
-        message: "Failed to generate unique small ID",
+        message: "Invalid FTS type. Must be one of: " + FTS_TYPES.join(", "),
       });
     }
 
-    // Find the last docket number for the current year
+    const year = new Date().getFullYear();
+    const smallId = await generateNextFtsId();
+    if (!smallId) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to generate unique FTS ID",
+      });
+    }
+
+    const typeSegment = ftsType;
     const lastTrack = await FastTrack.findOne({
-      docketNumber: new RegExp(`^Delpro/Report/${year}/`),
+      docketNumber: new RegExp(`^${DOCKET_PREFIX}/${typeSegment}/${year}/`),
     }).sort({ docketNumber: -1 });
 
     let nextSequence = 1;
-
     if (lastTrack) {
-      const lastSequence = parseInt(lastTrack.docketNumber.split("/").pop());
+      const lastSequence = parseInt(lastTrack.docketNumber.split("/").pop(), 10);
       nextSequence = lastSequence + 1;
     }
 
-    const docketNumber = `Delpro/Report/${year}/${String(nextSequence).padStart(3, "0")}`;
+    const docketNumber = `${DOCKET_PREFIX}/${typeSegment}/${year}/${String(nextSequence).padStart(3, "0")}`;
 
     return res.status(200).json({
       success: true,
-      data: { smallId, docketNumber },
+      data: { smallId, docketNumber, ftsType },
     });
   } catch (error) {
     console.error("Generate ID error:", error);
@@ -73,6 +116,7 @@ exports.getFastTracks = async (req, res) => {
     const transformedData = fastTracks.map((ft) => ({
       smallId: ft.smallId,
       docketNumber: ft.docketNumber,
+      ftsType: ft.ftsType || "Report",
       title: ft.title,
       isPublished: ft.isPublished,
       publishedAt: ft.publishedAt,
@@ -100,23 +144,29 @@ exports.getFastTracks = async (req, res) => {
 // Create FastTrack
 exports.createFastTrack = async (req, res) => {
   try {
-    const { title, smallId, docketNumber } = req.body;
+    const { title, smallId, docketNumber, ftsType } = req.body;
     const { id: createdBy } = req.user;
 
-    // Validate that both IDs are provided
-    if (!smallId || !docketNumber) {
+    const type = (ftsType || "Report").trim();
+    if (!FTS_TYPES.includes(type)) {
       return res.status(400).json({
         success: false,
-        message: "Both small ID and docket number are required",
+        message: "Invalid FTS type. Must be one of: " + FTS_TYPES.join(", "),
       });
     }
 
-    // Check if IDs already exist
+    if (!smallId || !docketNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "Both FTS ID and docket number are required",
+      });
+    }
+
     const existingSmallId = await FastTrack.findOne({ smallId });
     if (existingSmallId) {
       return res.status(400).json({
         success: false,
-        message: "Small ID already exists",
+        message: "FTS ID already exists",
       });
     }
 
@@ -131,6 +181,7 @@ exports.createFastTrack = async (req, res) => {
     const fastTrack = new FastTrack({
       smallId,
       docketNumber,
+      ftsType: type,
       title,
       createdBy,
     });
@@ -144,6 +195,7 @@ exports.createFastTrack = async (req, res) => {
       data: {
         smallId: fastTrack.smallId,
         docketNumber: fastTrack.docketNumber,
+        ftsType: fastTrack.ftsType,
         title: fastTrack.title,
         isPublished: fastTrack.isPublished,
         createdBy: {
@@ -190,6 +242,7 @@ exports.updateFastTrack = async (req, res) => {
       data: {
         smallId: fastTrack.smallId,
         docketNumber: fastTrack.docketNumber,
+        ftsType: fastTrack.ftsType || "Report",
         title: fastTrack.title,
         isPublished: fastTrack.isPublished,
         publishedAt: fastTrack.publishedAt,
@@ -236,6 +289,7 @@ exports.publishFastTrack = async (req, res) => {
       data: {
         smallId: fastTrack.smallId,
         docketNumber: fastTrack.docketNumber,
+        ftsType: fastTrack.ftsType || "Report",
         title: fastTrack.title,
         isPublished: fastTrack.isPublished,
         publishedAt: fastTrack.publishedAt,

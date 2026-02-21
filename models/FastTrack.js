@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 
+const FTS_TYPES = ["Report", "Purchase", "Correspondence", "Other"];
+
 const fastTrackSchema = new mongoose.Schema(
   {
     smallId: {
@@ -11,6 +13,12 @@ const fastTrackSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+    },
+    ftsType: {
+      type: String,
+      required: true,
+      enum: FTS_TYPES,
+      default: "Report",
     },
     title: {
       type: String,
@@ -40,6 +48,7 @@ const fastTrackSchema = new mongoose.Schema(
 // Indexes (removed duplicate index: true from fields)
 fastTrackSchema.index({ smallId: 1 });
 fastTrackSchema.index({ docketNumber: 1 });
+fastTrackSchema.index({ ftsType: 1 });
 fastTrackSchema.index({ createdBy: 1 });
 fastTrackSchema.index({ isPublished: 1 });
 fastTrackSchema.index({ createdAt: -1 });
