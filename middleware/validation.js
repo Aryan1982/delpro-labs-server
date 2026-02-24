@@ -83,12 +83,7 @@ const validateFastTrack = [
     .matches(/^[A-Z0-9]+$/)
     .withMessage(
       "Small ID must be 6 characters long and contain only uppercase letters and numbers",
-    ),
-  body("docketNumber")
-    .trim()
-    .matches(/^Delpro\/Report\/\d{4}\/\d{3}$/)
-    .withMessage("Docket number must be in format: Delpro/Report/YYYY/NNN"),
-  handleValidationErrors,
+    )
 ];
 
 // Staff creation validation
