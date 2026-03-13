@@ -54,7 +54,10 @@ const validateProject = [
     .trim()
     .isLength({ max: 2000 })
     .withMessage("Description must not exceed 2000 characters"),
-  body("clientId").isMongoId().withMessage("Valid client ID is required"),
+  body("clientId")
+    .optional({ nullable: true, checkFalsy: true })
+    .isMongoId()
+    .withMessage("Valid client ID is required"),
   body("testType").trim().notEmpty().withMessage("Test type is required"),
   body("priority")
     .optional()
@@ -65,7 +68,7 @@ const validateProject = [
     .isIn(["pending", "in_progress", "completed", "on_hold"])
     .withMessage("Status must be pending, in_progress, completed, or on_hold"),
   body("dueDate")
-    .optional()
+    .optional({ nullable: true, checkFalsy: true })
     .isISO8601()
     .withMessage("Due date must be a valid date"),
   handleValidationErrors,
@@ -83,7 +86,23 @@ const validateFastTrack = [
     .matches(/^[A-Z0-9]+$/)
     .withMessage(
       "Small ID must be 6 characters long and contain only uppercase letters and numbers",
-    )
+    ),
+  handleValidationErrors,
+];
+
+// Change password validation
+const validateChangePassword = [
+  body("currentPassword")
+    .notEmpty()
+    .withMessage("Current password is required"),
+  body("newPassword")
+    .isLength({ min: 6 })
+    .withMessage("Password must be at least 6 characters long")
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage(
+      "Password must contain at least one uppercase letter, one lowercase letter, and one number",
+    ),
+  handleValidationErrors,
 ];
 
 // Staff creation validation
@@ -156,6 +175,7 @@ module.exports = {
   validateStaffCreation,
   validateStaffUpdate,
   validatePasswordReset,
+  validateChangePassword,
   validateActivation,
   validateForgotPassword,
 };

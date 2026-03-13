@@ -31,7 +31,8 @@ const projectSchema = new mongoose.Schema(
     clientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
+      default: null,
     },
     assignedStaffId: {
       type: mongoose.Schema.Types.ObjectId,

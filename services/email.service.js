@@ -147,8 +147,66 @@ const sendStaffCredentialsEmail = async (user, tempPassword) => {
   }
 };
 
+// Send project assignment email to staff
+const sendProjectAssignmentEmail = async (staff, project) => {
+  try {
+    if (!staff || !staff.email) {
+      throw new Error("Staff user or staff email is missing");
+    }
+
+    const transporter = createTransporter();
+
+    const projectUrl = `${process.env.FRONTEND_URL}/dashboard/projects/${project.projectId || project._id}`;
+
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: staff.email,
+      subject: `New Project Assigned: ${project.title}`,
+      html: `
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
+          <h2 style="color: #333;">New Project Assigned</h2>
+          <p>Hi ${staff.name},</p>
+          <p>You have been assigned a new project in DELPRO LABS.</p>
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
+            <p><strong>Project:</strong> ${project.title}</p>
+            ${
+              project.projectId
+                ? `<p><strong>Project ID:</strong> ${project.projectId}</p>`
+                : ""
+            }
+            ${
+              project.dueDate
+                ? `<p><strong>Due Date:</strong> ${new Date(
+                    project.dueDate,
+                  ).toLocaleDateString()}</p>`
+                : ""
+            }
+          </div>
+          <p>You can view the project details from your dashboard:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${projectUrl}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+              View Project
+            </a>
+          </div>
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+          <p style="color: #666; font-size: 12px;">
+            If you believe this assignment is a mistake, please contact your administrator.
+          </p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`Project assignment email sent to ${staff.email}`);
+  } catch (error) {
+    console.error("Error sending project assignment email:", error);
+    throw new Error("Failed to send project assignment email");
+  }
+};
+
 module.exports = {
   sendActivationEmail,
   sendPasswordResetEmail,
   sendStaffCredentialsEmail,
+  sendProjectAssignmentEmail,
 };
